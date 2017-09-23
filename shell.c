@@ -14,8 +14,10 @@
 #include "foreground.h"
 #include "background.h"
 #include "nightswatch.h"
-int arr[100],ind = 0;
-char name[100][100];
+int arr[100],ind = 0,varindex,stopindex = 0;
+char name[100][100],stop_name[100][100];
+extern char **environ;
+int printv(int varindex);
 int builtin_fn(char **tokenlist,int index,char home[],char temp[]);
 int exec_fn(char *tokenlist[],int index);
 int tokenize(char **tokenlist,char *token,char buf[],char del[]);
@@ -30,8 +32,10 @@ int main(){
     char del2[] = " \t\r\n;";
     int index,flag,i,index2,j,ret;
     char *builtins[] = {
-        "cd","pwd","ls","pinfo","echo","nightswatch"
+        "cd","pwd","ls","pinfo","echo","nightswatch","setenv","printenv","unsetenv"
     };
+    varindex = 0;
+    while(environ[varindex])   varindex++;
     getcwd(home,sizeof(home));
     ssize_t bufsize = 0;
     while(1){
@@ -92,13 +96,13 @@ int call_fn(char *tokenlist[],int index,char home[],char temp[],char *builtins[]
         if(strcmp(tokenlist[0],"exit")==0){
             return -1;
         }
-        for(j=0;j<6;j++){
+        for(j=0;j<9;j++){
             if(strcmp(tokenlist[0],builtins[j])==0){
                 builtin_fn(tokenlist,index,home,temp);
                 break;
             }
         }
-        if(j==6)
+        if(j==9)
             exec_fn(tokenlist,index);
     }
     return 0;
@@ -133,6 +137,27 @@ int builtin_fn(char **tokenlist,int index,char home[],char temp[]){
                 cd(tokenlist[1],home);
             }
         }
+    }
+    else if(strcmp(tokenlist[0],"setenv")==0){
+        if(index > 3 || index == 1 )    printf("setenv error: no of arguments given not correct\n");
+        else{
+            if(setenv(tokenlist[1],tokenlist[2],1)==0)
+                varindex++;
+            else    perror("setenv error");
+        }
+    }
+    else if(strcmp(tokenlist[0],"unsetenv")==0){
+        if(index != 2 )    printf("unsetenv error: no of arguments given not correct\n");
+        else{
+            if(unsetenv(tokenlist[1])==0)
+                varindex--;
+            else perror("unsetenv error");
+        }
+    }
+    else if(strcmp(tokenlist[0],"printenv")==0){
+        if(index > 1) printf("printenv error: excess arguments given\n");
+        else
+            printv(varindex);
     }
     else if(strcmp(tokenlist[0],"pwd")==0){
         if(index > 1)
@@ -177,18 +202,28 @@ void child_terminate()
                 return;
             else
             {
-                int i;
+                int i,temp_stop = ind;
                 for(i=0;i<ind;i++)
                 {
                     if(arr[i]==pid){
                         pname = name[i];
+                        temp_stop = i;
                     }
+                    if(i > temp_stop)
                 } 
                 fprintf (stderr,"%s with pid: %d terminated %s\n",pname,pid,(wstat.w_retcode==0)?"normally":"abnormally");
             }
         }
 }
 
+int printv(int varindex){
+    int i=0;
+    printf("loda");
+    for(i=0;i<varindex;i++){
+        printf("%s\n",environ[i]);
+    }
+    return 0;
+}
 int print_prompt(char home[]){
     int index;
     char host[1024],cwd[1024];
