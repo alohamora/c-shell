@@ -12,8 +12,9 @@ int fg(char **tokenlist){
     if(pid < 0)
         perror("shell error");
     else if(pid==0){
-        if(execvp(tokenlist[0],tokenlist) == -1)
+        if(execvp(tokenlist[0],tokenlist) == -1){
             perror("shell error");
+        }
     }
     else{
         while(wait(&status)!=pid);

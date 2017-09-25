@@ -6,6 +6,7 @@
 #include<sys/wait.h>
 #include<signal.h>
 #include <termios.h>
+#include<pwd.h>
 #include "shell_cd.h"
 #include "shell_pwd.h"
 #include "shell_echo.h"
@@ -23,9 +24,12 @@ int exec_fn(char *tokenlist[],int index);
 int tokenize(char **tokenlist,char *token,char buf[],char del[]);
 int call_fn(char *tokenlist[],int index,char home[],char temp[],char *builtins[]);
 void child_terminate();
-int print_prompt(char home[]);
+int print_prompt(char home[],char *user);
 int push_front(int index_arr);
 int print_jobs();
+void handler(){
+    exit(0);
+}
 int main(){
     char *inp=NULL,*token,**tokenlist,home[1024],multiple;
     char *buf2,*buf,**tokenlist2,*temp;
@@ -33,17 +37,23 @@ int main(){
     char del2[] = " \t\r\n;";
     int index,flag,i,index2,j,ret;
     char *builtins[] = {
-        "cd","pwd","ls","pinfo","echo","nightswatch","setenv","printenv","unsetenv","jobs","kjob"
+        "cd","pwd","ls","pinfo","echo","nightswatch","setenv","printenv","unsetenv","jobs","kjob","fg","bg","overkill"
     };
+    uid_t uid;
+    struct passwd *n;
+    uid = getuid();
+    n = getpwuid(uid);
     varindex = 0;
     while(environ[varindex])   varindex++;
     getcwd(home,sizeof(home));
     ssize_t bufsize = 0;
+    signal(SIGINT,handler);
+    signal(SIGCHLD, child_terminate);
     while(1){
         ret = 0;
         flag = 0;
         index = 0;
-        print_prompt(home);
+        print_prompt(home,n->pw_name);
         getline(&inp, &bufsize, stdin);
         buf = (char *)malloc(sizeof(char)*1024);
         strcpy(buf,inp);
@@ -65,7 +75,6 @@ int main(){
             free(tokenlist2);
             free(temp);
         }
-        signal(SIGCHLD, child_terminate);
         // printf("%s",name[0]);                        
         //printf("%s",tokenlist[0]);                        
         if(ret==-1)
@@ -94,16 +103,16 @@ int call_fn(char *tokenlist[],int index,char home[],char temp[],char *builtins[]
         exec_fn(tokenlist,index);
     }
     if(flag==0){
-        if(strcmp(tokenlist[0],"exit")==0){
+        if(strcmp(tokenlist[0],"quit")==0){
             return -1;
         }
-        for(j=0;j<11;j++){
+        for(j=0;j<14;j++){
             if(strcmp(tokenlist[0],builtins[j])==0){
                 builtin_fn(tokenlist,index,home,temp);
                 break;
             }
         }
-        if(j==11)
+        if(j==14)
             exec_fn(tokenlist,index);
     }
     return 0;
@@ -199,6 +208,62 @@ int builtin_fn(char **tokenlist,int index,char home[],char temp[]){
                 printf("kjob error: process does not exist\n");
         }
     }
+    else if(strcmp(tokenlist[0],"fg")==0){
+        int j_no=0,j=1,status;
+        if(index!=2){
+            printf("fg error: wrong no of arguments given\n");
+        }
+        else{
+            for(i=strlen(tokenlist[1])-1;i>=0;i--){
+                j_no += j * (tokenlist[1][i] - 48);
+                j = j * 10;
+            }
+            if(j_no <= ind){
+                pid = arr[j_no-1];
+                if(kill(pid,SIGCONT)==-1){
+                    perror("fg error");
+                }
+                else{
+                    printf("%s",name[j_no-1]);
+                    push_front(j_no - 1);
+                    while(wait(&status)!=pid);
+                }
+            }
+            else{
+                printf("fg error: process not found\n");
+            }
+        }
+    }
+    else if(strcmp(tokenlist[0],"bg")==0){
+        int j_no=0,j=1;
+        if(index!=2){
+            printf("bg error: wrong no of arguments given\n");
+        }
+        else{
+            for(i=strlen(tokenlist[1])-1;i>=0;i--){
+                j_no += j * (tokenlist[1][i] - 48);
+                j = j * 10;
+            }
+            if(j_no <= ind){
+                pid = arr[j_no-1];
+                if(kill(pid,SIGCONT)==-1){
+                    perror("bg error");
+                }
+                else{
+                    status[ j_no - 1] = 0;
+                }
+            }
+            else{
+                printf("bg error: process not found\n");
+            }
+        }
+    }
+    else if(strcmp(tokenlist[0],"overkill")==0){
+        int i;
+        for(i=0;i<ind;i++){
+            kill(arr[i],9);
+        }
+    }
     else if(strcmp(tokenlist[0],"pwd")==0){
         if(index > 1)
             printf("pwd : excess arguments given");
@@ -276,7 +341,7 @@ int print_jobs(){
     }
     return 0;
 }
-int print_prompt(char home[]){
+int print_prompt(char home[],char *user){
     int index;
     char host[1024],cwd[1024];
     gethostname(host,1024);
@@ -284,10 +349,10 @@ int print_prompt(char home[]){
     if(strstr(cwd,home)){
         index = strlen(home);
         cwd[index-1] = '~';
-        printf("\033[1;32m<%s@%s\033[0m:\033[1;36m%s>\033[0m$ ",getenv("USER"),host,&cwd[index-1]);
+        printf("\033[1;32m<%s@%s\033[0m:\033[1;36m%s>\033[0m$ ",user,host,&cwd[index-1]);
     }
     else
-        printf("\033[1;32m<%s@%s\033[0m:\033[1;36m%s>\033[0m$ ",getenv("USER"),host,cwd);
+        printf("\033[1;32m<%s@%s\033[0m:\033[1;36m%s>\033[0m$ ",user,host,cwd);
     return 0;
 }
 
