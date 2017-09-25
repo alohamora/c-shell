@@ -14,8 +14,8 @@
 #include "foreground.h"
 #include "background.h"
 #include "nightswatch.h"
-int arr[100],ind = 0,varindex,stopindex = 0;
-char name[100][100],stop_name[100][100];
+int arr[100],ind = 0,varindex,status[10]={0};
+char name[100][100];
 extern char **environ;
 int printv(int varindex);
 int builtin_fn(char **tokenlist,int index,char home[],char temp[]);
@@ -24,7 +24,8 @@ int tokenize(char **tokenlist,char *token,char buf[],char del[]);
 int call_fn(char *tokenlist[],int index,char home[],char temp[],char *builtins[]);
 void child_terminate();
 int print_prompt(char home[]);
-
+int push_front(int index_arr);
+int print_jobs();
 int main(){
     char *inp=NULL,*token,**tokenlist,home[1024],multiple;
     char *buf2,*buf,**tokenlist2,*temp;
@@ -32,7 +33,7 @@ int main(){
     char del2[] = " \t\r\n;";
     int index,flag,i,index2,j,ret;
     char *builtins[] = {
-        "cd","pwd","ls","pinfo","echo","nightswatch","setenv","printenv","unsetenv"
+        "cd","pwd","ls","pinfo","echo","nightswatch","setenv","printenv","unsetenv","jobs","kjob"
     };
     varindex = 0;
     while(environ[varindex])   varindex++;
@@ -96,23 +97,27 @@ int call_fn(char *tokenlist[],int index,char home[],char temp[],char *builtins[]
         if(strcmp(tokenlist[0],"exit")==0){
             return -1;
         }
-        for(j=0;j<9;j++){
+        for(j=0;j<11;j++){
             if(strcmp(tokenlist[0],builtins[j])==0){
                 builtin_fn(tokenlist,index,home,temp);
                 break;
             }
         }
-        if(j==9)
+        if(j==11)
             exec_fn(tokenlist,index);
     }
     return 0;
 }
 
 int exec_fn(char *tokenlist[],int index){
-    int pid = 0;
+    int pid = 0,i;
     if(tokenlist[index-1][0] == '&'){
         tokenlist[index-1] = NULL;
         strcpy(name[ind],tokenlist[0]);
+        for(i=1;i<index-1;i++){
+            strcat(name[ind]," ");
+            strcat(name[ind],tokenlist[i]);
+        }
         pid = bg(tokenlist);
         arr[ind] = pid;
         ind++;
@@ -124,8 +129,9 @@ int exec_fn(char *tokenlist[],int index){
 }
 
 int builtin_fn(char **tokenlist,int index,char home[],char temp[]){
-    int i,j,length,flag = 0;
-    
+    int i,j,length,flag = 0,pid,sig,tempindex;
+    char *temp_str;
+    pid_t fpid;
     if(strcmp(tokenlist[0],"cd")==0){
         if(index>2)
             printf("cd : excess arguments given");
@@ -149,15 +155,49 @@ int builtin_fn(char **tokenlist,int index,char home[],char temp[]){
     else if(strcmp(tokenlist[0],"unsetenv")==0){
         if(index != 2 )    printf("unsetenv error: no of arguments given not correct\n");
         else{
-            if(unsetenv(tokenlist[1])==0)
-                varindex--;
-            else perror("unsetenv error");
+            temp_str = getenv(tokenlist[1]);          
+            if(temp_str != NULL){
+                if(unsetenv(tokenlist[1])==0)
+                    varindex--;
+                else perror("unsetenv error");
+            }
+            else{
+                printf("unsetenv error: env variable not present\n");
+            }
         }
     }
     else if(strcmp(tokenlist[0],"printenv")==0){
         if(index > 1) printf("printenv error: excess arguments given\n");
         else
             printv(varindex);
+    }
+    else if(strcmp(tokenlist[0],"jobs")==0){
+        if(index != 1)  printf("jobs error: excess arguments given\n");
+        else print_jobs();
+    }
+    else if(strcmp(tokenlist[0],"kjob")==0){
+        if(index!=3)    printf("kjob error: wrong arguments given\n");
+        else{
+            j=1;
+            pid = 0;
+            sig = 0;
+            for(i=strlen(tokenlist[1])-1;i>=0;i--){
+                pid += j * (tokenlist[1][i]-48);
+                j = j*10; 
+            }
+            j=1;
+            for(i=strlen(tokenlist[2])-1;i>=0;i--){
+                sig += j * (tokenlist[2][i]-48);
+                j = j*10; 
+            }
+            if(pid <= ind){
+                fpid = arr[pid-1];
+                if(kill(fpid,sig)==-1)
+                   perror("kjob error");
+            }
+            else
+                printf("kjob error: process does not exist\n");
+        }
     }
     else if(strcmp(tokenlist[0],"pwd")==0){
         if(index > 1)
@@ -193,6 +233,7 @@ void child_terminate()
 {
         union wait wstat;
         pid_t   pid;
+        int index = ind;
         char *pname;
         while (1) {
             pid = wait3 (&wstat, WNOHANG, (struct rusage *)NULL );
@@ -207,11 +248,11 @@ void child_terminate()
                 {
                     if(arr[i]==pid){
                         pname = name[i];
-                        temp_stop = i;
+                        index = i;
                     }
-                    if(i > temp_stop)
                 } 
                 fprintf (stderr,"%s with pid: %d terminated %s\n",pname,pid,(wstat.w_retcode==0)?"normally":"abnormally");
+                push_front(index);
             }
         }
 }
@@ -221,6 +262,17 @@ int printv(int varindex){
     printf("loda");
     for(i=0;i<varindex;i++){
         printf("%s\n",environ[i]);
+    }
+    return 0;
+}
+
+int print_jobs(){
+    int i;
+    for(i=0;i<ind;i++){
+        printf("[%d] ",i+1);
+        if(status[i]==1)    printf("Stopped ");
+        else    printf("Running ");
+        printf("%s[%d]\n",name[i],arr[i]);
     }
     return 0;
 }
@@ -237,4 +289,19 @@ int print_prompt(char home[]){
     else
         printf("\033[1;32m<%s@%s\033[0m:\033[1;36m%s>\033[0m$ ",getenv("USER"),host,cwd);
     return 0;
+}
+
+int push_front(int index_arr){
+    int i,len;
+    for(i=index_arr;i<ind-1;i++){
+        arr[i] = arr[i+1];
+        len = strlen(name[i+1]);
+        if(strlen(name[i+1]) > strlen(name[i]))
+            memmove(name[i],name[i+1],len);
+        else{
+            memmove(name[i],name[i+1],len);
+            name[i][len]='\0';
+        }
+    }
+    ind--;
 }
